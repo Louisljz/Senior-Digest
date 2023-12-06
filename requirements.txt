@@ -1,0 +1,13 @@
+streamlit
+streamlit-audiorec
+
+gspread
+google-cloud-speech
+google-cloud-texttospeech
+google_cloud_aiplatform
+
+pinecone-client
+langchain
+
+# tqdm
+# python-dotenv

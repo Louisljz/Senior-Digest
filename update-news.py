@@ -1,24 +1,28 @@
-import gspread
-import pinecone
-from dotenv import load_dotenv
 import os
-from datetime import datetime
-from urllib import request
-from tqdm import tqdm
+import re
 import json
+from tqdm import tqdm
+from urllib import request
+from datetime import datetime
+from dotenv import load_dotenv
+
+from langchain.document_loaders import WebBaseLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain.llms import VertexAI
 from langchain.embeddings import VertexAIEmbeddings
-from langchain.chains.summarize import load_summarize_chain
+
 from langchain.prompts import PromptTemplate
-from langchain.document_loaders import WebBaseLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains.summarize import load_summarize_chain
+
+import gspread
+import pinecone
 from langchain.vectorstores import Pinecone
 
 import warnings
-
 warnings.filterwarnings('ignore')
 load_dotenv()
+
 
 def generate_summary(article):
     chain = load_summarize_chain(llm,
@@ -39,11 +43,7 @@ Generate summary for the following text, using the following steps:
 SUMMARY: """
 prompt = PromptTemplate.from_template(prompt_template)
 
-llm = VertexAI(temperature=0.1,
-               model='text-bison@001',
-               top_k=40,
-               top_p=0.8,
-               max_output_token=512)
+llm = VertexAI()
 embeddings = VertexAIEmbeddings()
 
 pinecone.init(
@@ -74,8 +74,10 @@ news_data = []
 documents = []
 for news in tqdm(articles, desc='Processing Articles'):
     loader = WebBaseLoader(news['url'])
-    content = loader.load()
-    summary = generate_summary(content)
+    doc = loader.load()
+    doc[0].page_content = re.sub(r'\s+', ' ', doc[0].page_content)
+    
+    summary = generate_summary(doc)
 
     news_data.append([
         news['title'],
@@ -84,7 +86,7 @@ for news in tqdm(articles, desc='Processing Articles'):
         summary
     ])
 
-    documents.extend(content)
+    documents.extend(doc)
 
 # update gsheet
 sheet.update('A2', news_data)

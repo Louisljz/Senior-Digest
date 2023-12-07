@@ -1,3 +1,4 @@
 .streamlit/
 .env
 service-account.json
+venv/

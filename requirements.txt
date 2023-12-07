@@ -7,7 +7,9 @@ google-cloud-texttospeech
 google_cloud_aiplatform
 
 pinecone-client
-langchain
+langchain==0.0.323
 
-# tqdm
-# python-dotenv
+trulens_eval==0.17.0
+litellm==0.14.1
+tqdm
+python-dotenv

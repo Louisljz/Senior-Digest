@@ -5,7 +5,7 @@ import wave
 from io import BytesIO
 
 import gspread
-from google.cloud import speech, texttospeech
+from google.cloud import aiplatform, speech, texttospeech
 from google.oauth2.service_account import Credentials
 
 import pinecone
@@ -16,10 +16,42 @@ from langchain.embeddings import VertexAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 
+import numpy as np
+from trulens_eval import Select, feedback, Feedback, Tru, TruChain, LiteLLM
+
 
 langchain.debug = True
-st.set_page_config('News Helper App', '📰')
-st.title('📰 News Helper App')
+st.set_page_config('News-Digest', '📰')
+st.title('📰 News-Digest')
+
+
+def setup_feedbacks():
+    tru = Tru()
+    tru.reset_database()
+    llm_provider = LiteLLM(model_engine="chat-bison")
+    
+    # Question/answer relevance between overall question and answer.
+    qa_relevance = Feedback(llm_provider.relevance,
+                            name="Answer Relevance").on_input_output()
+
+    # Context relevance between question and each context chunk.
+    qs_relevance = Feedback(llm_provider.qs_relevance,
+                            name="Context Relevance").on_input().on(
+                                Select.Record.app.combine_documents_chain._call.
+                                args.inputs.input_documents[:].page_content
+                            ).aggregate(np.mean)
+
+    # Define groundedness
+    grounded = feedback.Groundedness(groundedness_provider=llm_provider)
+    groundedness = (
+        Feedback(grounded.groundedness_measure_with_cot_reasons).on(
+            Select.Record.app.combine_documents_chain._call.args.inputs.
+            input_documents[:].page_content.collect()
+        ).on_output().aggregate(grounded.grounded_statements_aggregator)
+    )
+
+    feedback_functions = [qa_relevance, qs_relevance, groundedness]
+    return feedback_functions
 
 @st.cache_resource
 def load_resources():
@@ -30,10 +62,11 @@ def load_resources():
     ]
     service_acc = dict(st.secrets['service_account'])
     my_credentials = Credentials.from_service_account_info(service_acc, scopes=scopes)
+    aiplatform.init(credentials=my_credentials, project=service_acc['project_id'])
 
+    llm = VertexAI()
+    embeddings = VertexAIEmbeddings()
     gsheet = gspread.authorize(credentials=my_credentials)
-    llm = VertexAI(credentials=my_credentials, project=service_acc['project_id'])
-    embeddings = VertexAIEmbeddings(credentials=my_credentials)
     stt = speech.SpeechClient(credentials=my_credentials)
     tts = texttospeech.TextToSpeechClient(credentials=my_credentials)
 
@@ -46,20 +79,9 @@ def load_resources():
     Helpful Answer:"""
     prompt = PromptTemplate.from_template(template)
 
-    return gsheet, llm, embeddings, prompt, stt, tts
+    feedbacks = setup_feedbacks()
 
-gsheet, llm, embeddings, prompt, stt, tts = load_resources()
-
-if 'news_data' not in st.session_state:
-    sheet = gsheet.open('Daily News Summary').sheet1
-    st.session_state.news_data = sheet.get('A2:D11')
-
-if 'vector_store' not in st.session_state:
-    pinecone.init(
-        api_key=st.secrets['PINECONE_API_KEY'],
-        environment='gcp-starter',
-    )
-    st.session_state.vector_store = Pinecone.from_existing_index('news-data', embeddings)
+    return gsheet, llm, embeddings, prompt, stt, tts, feedbacks
 
 def speak(text):
     synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -96,6 +118,21 @@ def listen(voice):
     query = response.results[0].alternatives[0].transcript
     return query
 
+
+gsheet, llm, embeddings, prompt, stt, tts, feedbacks = load_resources()
+
+if 'news_data' not in st.session_state:
+    sheet = gsheet.open('Daily News Summary').sheet1
+    st.session_state.news_data = sheet.get('A2:D11')
+
+if 'vector_store' not in st.session_state:
+    pinecone.init(
+        api_key=st.secrets['PINECONE_API_KEY'],
+        environment='gcp-starter',
+    )
+    st.session_state.vector_store = Pinecone.from_existing_index('news-data', embeddings)
+
+
 tabs = st.tabs(['Summary', 'Query'])
 with tabs[0]:
     for i, news in enumerate(st.session_state.news_data):
@@ -108,11 +145,19 @@ with tabs[0]:
                     st.audio(voice)
 
 with tabs[1]:
-    audio = st_audiorec()
-    if audio:
-        query = listen(audio)
-        st.write(f'Query: {query}')
+    media = st.radio('Choose input method:', ['speak', 'type'])
+    if media == 'type':
+        query = st.text_input('Write your query!')
+    else:
+        audio = st_audiorec()
+        if audio:
+            query = listen(audio)
+            st.write(f'Query: {query}')
+            st.divider()
+        else:
+            query = ''
 
+    if query:
         qa_chain = RetrievalQA.from_chain_type(   
             llm=llm,   
             chain_type="stuff", 
@@ -120,8 +165,15 @@ with tabs[1]:
             chain_type_kwargs={"prompt": prompt}
         )
 
-        response = qa_chain.run(query)
-        st.divider()
+        chain_recorder = TruChain(
+            qa_chain,
+            app_id="News-Digest",
+            feedbacks=feedbacks
+        )
+
+        with chain_recorder as recording:
+            response = qa_chain.run(query)
+        
         st.write(f'Response: {response}')
         voice = speak(response)
         st.audio(voice)

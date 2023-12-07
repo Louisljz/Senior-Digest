@@ -8,6 +8,7 @@ google_cloud_aiplatform==1.37.0
 
 pinecone-client==2.2.4
 langchain==0.0.323
+openai==0.28.1
 
 trulens_eval==0.17.0
 litellm==0.14.1

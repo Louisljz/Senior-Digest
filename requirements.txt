@@ -1,17 +1,17 @@
-streamlit
-streamlit-audiorec
+streamlit==1.29.0
+streamlit-audiorec==0.1.3
 
-gspread
-google-cloud-speech
-google-cloud-texttospeech
-google_cloud_aiplatform
+gspread==5.12.2
+google-cloud-speech==2.22.0
+google-cloud-texttospeech==2.14.2
+google_cloud_aiplatform==1.37.0
 
-pinecone-client
+pinecone-client==2.2.4
 langchain==0.0.323
 
 trulens_eval==0.17.0
 litellm==0.14.1
-psycopg2
+psycopg2==2.9.9
 
-tqdm
-python-dotenv
+tqdm==4.66.1
+python-dotenv==1.0.0

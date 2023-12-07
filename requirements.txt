@@ -11,7 +11,7 @@ langchain==0.0.323
 
 trulens_eval==0.17.0
 litellm==0.14.1
-psycopg2==2.9.9
+psycopg2-binary==2.9.9
 
 tqdm==4.66.1
 python-dotenv==1.0.0

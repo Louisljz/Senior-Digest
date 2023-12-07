@@ -25,24 +25,11 @@ load_dotenv()
 
 
 def generate_summary(article):
-    chain = load_summarize_chain(llm,
-                                chain_type="stuff",
-                                prompt=prompt)
+    chain = load_summarize_chain(llm, chain_type="map_reduce")
     summary = chain.run(article)
     return summary
 
 # Initiate Langchain components
-prompt_template = """
-Generate summary for the following text, using the following steps:
-1. summary consists of maximum 100 words
-2. If the text cannot be found or error, return: "Content empty"
-3. Use only materials from the text supplied
-4. Create summary in English
-
-"{text}"
-SUMMARY: """
-prompt = PromptTemplate.from_template(prompt_template)
-
 llm = VertexAI()
 embeddings = VertexAIEmbeddings()
 

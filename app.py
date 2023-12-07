@@ -26,7 +26,7 @@ st.title('📰 News-Digest')
 
 
 def setup_feedbacks():
-    tru = Tru()
+    tru = Tru(database_url=st.secrets['TRULENS_DB_URL'])
     tru.reset_database()
     llm_provider = LiteLLM(model_engine="chat-bison")
     

@@ -20,8 +20,8 @@ import numpy as np
 from trulens_eval import Select, feedback, Feedback, Tru, TruChain, LiteLLM
 
 
-st.set_page_config('News-Digest', '📰')
-st.title('📰 News-Digest')
+st.set_page_config('Senior-Digest', '📰')
+st.title('📰 Senior-Digest')
 
 
 def authenticate():

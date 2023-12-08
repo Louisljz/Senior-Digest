@@ -3,7 +3,7 @@ import re
 import json
 from tqdm import tqdm
 from urllib import request
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from langchain.document_loaders import WebBaseLoader
@@ -12,7 +12,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.llms import VertexAI
 from langchain.embeddings import VertexAIEmbeddings
 
-from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 
 import gspread
@@ -39,7 +38,7 @@ pinecone.init(
 )
 
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=500, chunk_overlap=50
+    chunk_size=1024, chunk_overlap=100
 )
 
 # Authenticate google-spreadsheets
@@ -50,13 +49,13 @@ sheet.batch_clear(['A2:D11'])
 
 # Fetch articles from GNEWS
 api_key = os.getenv('GNEWS_API_KEY')
-today = datetime.today().strftime(r"%Y-%m-%d")
+today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
 url = f"https://gnews.io/api/v4/top-headlines?&lang=en&max=10&from={today}&apikey={api_key}"
 with request.urlopen(url) as response:
     data = json.loads(response.read().decode("utf-8"))
     articles = data['articles']
 
-# Updating GSheet and Zilliz DB
+# Updating GSheet and VectorDB
 news_data = []
 documents = []
 for news in tqdm(articles, desc='Processing Articles'):
@@ -81,6 +80,6 @@ sheet.update('A2', news_data)
 # update vector db
 print('Pushing news documents to vectorDB')
 doc_splits = text_splitter.split_documents(documents)
-docsearch = Pinecone.from_documents(doc_splits, embeddings, index_name='news-data')
+docsearch = Pinecone.from_documents(doc_splits, embeddings, index_name='news-data-v2')
 
 print("GSheet and Pinecone DB updated with news today!")

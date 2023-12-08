@@ -20,10 +20,20 @@ import numpy as np
 from trulens_eval import Select, feedback, Feedback, Tru, TruChain, LiteLLM
 
 
-langchain.debug = True
 st.set_page_config('News-Digest', '📰')
 st.title('📰 News-Digest')
 
+
+def authenticate():
+    scopes = [
+        'https://www.googleapis.com/auth/cloud-platform',
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    service_acc = dict(st.secrets['service_account'])
+    my_credentials = Credentials.from_service_account_info(service_acc, scopes=scopes)
+    aiplatform.init(credentials=my_credentials, project=service_acc['project_id'])
+    return my_credentials
 
 def setup_feedbacks():
     tru = Tru(database_url=st.secrets['TRULENS_DB_URL'])
@@ -52,22 +62,24 @@ def setup_feedbacks():
     feedback_functions = [qa_relevance, qs_relevance, groundedness]
     return feedback_functions
 
-@st.cache_resource
-def load_resources():
-    scopes = [
-        'https://www.googleapis.com/auth/cloud-platform',
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
-    service_acc = dict(st.secrets['service_account'])
-    my_credentials = Credentials.from_service_account_info(service_acc, scopes=scopes)
-    aiplatform.init(credentials=my_credentials, project=service_acc['project_id'])
+def retrieve_news(credentials):
+    gsheet = gspread.authorize(credentials=credentials)
+    sheet = gsheet.open('Daily News Summary').sheet1
+    news_data = sheet.get('A2:D11')
+    return news_data
 
-    llm = VertexAI()
+def setup_vectorstore():
     embeddings = VertexAIEmbeddings()
-    gsheet = gspread.authorize(credentials=my_credentials)
-    stt = speech.SpeechClient(credentials=my_credentials)
-    tts = texttospeech.TextToSpeechClient(credentials=my_credentials)
+    pinecone.init(
+        api_key=st.secrets['PINECONE_API_KEY'],
+        environment='gcp-starter',
+    )
+    vector_store = Pinecone.from_existing_index('news-data-v2', embeddings)
+    return vector_store
+
+def setup_qachain():
+    llm = VertexAI()
+    vector_store = setup_vectorstore()
 
     template = """
     Use the following pieces of context to answer the question at the end. 
@@ -78,9 +90,35 @@ def load_resources():
     Helpful Answer:"""
     prompt = PromptTemplate.from_template(template)
 
+    qa_chain = RetrievalQA.from_chain_type(   
+        llm=llm,   
+        chain_type="stuff", 
+        retriever=vector_store.as_retriever(),   
+        chain_type_kwargs={"prompt": prompt}
+    )
+
+    return qa_chain
+
+@st.cache_resource
+def load_resources():
+    langchain.debug = True
+    credentials = authenticate()
+
+    stt = speech.SpeechClient(credentials=credentials)
+    tts = texttospeech.TextToSpeechClient(credentials=credentials)
+
+    qa_chain = setup_qachain()
     feedbacks = setup_feedbacks()
 
-    return gsheet, llm, embeddings, prompt, stt, tts, feedbacks
+    chain_recorder = TruChain(
+        qa_chain,
+        app_id="News-Digest (Greater Chunk Size)",
+        feedbacks=feedbacks
+    )
+
+    news_data = retrieve_news(credentials)
+
+    return stt, tts, qa_chain, chain_recorder, news_data
 
 def speak(text):
     synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -117,24 +155,18 @@ def listen(voice):
     query = response.results[0].alternatives[0].transcript
     return query
 
+def run(query):
+    with chain_recorder as recording:
+        response = qa_chain.run(query)
+    return response
 
-gsheet, llm, embeddings, prompt, stt, tts, feedbacks = load_resources()
 
-if 'news_data' not in st.session_state:
-    sheet = gsheet.open('Daily News Summary').sheet1
-    st.session_state.news_data = sheet.get('A2:D11')
-
-if 'vector_store' not in st.session_state:
-    pinecone.init(
-        api_key=st.secrets['PINECONE_API_KEY'],
-        environment='gcp-starter',
-    )
-    st.session_state.vector_store = Pinecone.from_existing_index('news-data', embeddings)
+stt, tts, qa_chain, chain_recorder, news_data = load_resources()
 
 
 tabs = st.tabs(['Summary', 'Query'])
 with tabs[0]:
-    for i, news in enumerate(st.session_state.news_data):
+    for i, news in enumerate(news_data):
         with st.expander(news[0]):
             st.caption(f'Published by {news[1]} on {news[2]}')
             st.write(news[3])
@@ -147,32 +179,18 @@ with tabs[1]:
     media = st.radio('Choose input method:', ['speak', 'type'])
     if media == 'type':
         query = st.text_input('Write your query!')
+        if query and st.button('submit'):
+            response = run(query)
+            st.write(response)
     else:
         audio = st_audiorec()
         if audio:
             query = listen(audio)
             st.write(f'Query: {query}')
             st.divider()
-        else:
-            query = ''
 
-    if query:
-        qa_chain = RetrievalQA.from_chain_type(   
-            llm=llm,   
-            chain_type="stuff", 
-            retriever=st.session_state.vector_store.as_retriever(),   
-            chain_type_kwargs={"prompt": prompt}
-        )
-
-        chain_recorder = TruChain(
-            qa_chain,
-            app_id="News-Digest",
-            feedbacks=feedbacks
-        )
-
-        with chain_recorder as recording:
-            response = qa_chain.run(query)
-        
-        st.write(f'Response: {response}')
-        voice = speak(response)
-        st.audio(voice)
+            response = run(query)
+            st.write(response)
+            
+            voice = speak(response)
+            st.audio(voice)

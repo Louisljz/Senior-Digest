@@ -50,6 +50,7 @@ sheet.batch_clear(['A2:D11'])
 # Fetch articles from GNEWS
 api_key = os.getenv('GNEWS_API_KEY')
 today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+print(f'Extracting Top 10 News from {today}')
 url = f"https://gnews.io/api/v4/top-headlines?&lang=en&max=10&from={today}&apikey={api_key}"
 with request.urlopen(url) as response:
     data = json.loads(response.read().decode("utf-8"))

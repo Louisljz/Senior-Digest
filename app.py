@@ -82,18 +82,12 @@ def load_resources():
     feedbacks = setup_feedbacks()
 
     template = """
-        Given the provided context:
-        {context}
-
-        Your question:
-        {question}
-
-        Based on the given context and my existing knowledge, the answer is:
-
-        [Your Answer Here]
-
-        If the question does not relate to recent news or current events, and the answer isn't found within the provided context or my existing knowledge base, the appropriate response would be: "Query irrelevant to news."
-    """
+    Use the following pieces of context to answer the question at the end. 
+    If you don't know the answer, just say that you don't know, 
+    don't try to make up an answer. Keep the answer as concise as possible. 
+    {context}
+    Question: {question}
+    Helpful Answer:"""
     prompt = PromptTemplate.from_template(template)
 
     return gsheet, llm, embeddings, stt, tts, feedbacks, prompt
